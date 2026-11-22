@@ -1,0 +1,16 @@
+{
+  "name": "Snake Klasik",
+  "short_name": "Snake",
+  "description": "Game Snake klasik yang bisa dimainkan tanpa internet.",
+  "lang": "id",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1215",
+  "theme_color": "#0b1215",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

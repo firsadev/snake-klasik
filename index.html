@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0b1215">
+<meta name="description" content="Game Snake klasik yang bisa dimainkan tanpa internet.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Snake">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Snake Klasik</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -529,6 +537,13 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
   reset();
   requestAnimationFrame(render);
 })();
+</script>
+<script>
+if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("sw.js").catch(function () {});
+  });
+}
 </script>
 </body>
 </html>
