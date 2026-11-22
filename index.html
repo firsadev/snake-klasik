@@ -129,17 +129,7 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
 
 .bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .btns { display: flex; gap: 8px; }
-.hint { color: var(--muted); font-size: 0.8125rem; margin: 0; line-height: 1.45; max-width: 30ch; }
-.pad { display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(2, 54px); gap: 8px; justify-content: center; }
-.pad button {
-  padding: 0; font-size: 1.1rem; background: var(--card); color: var(--fg); border: 1px solid var(--card-line);
-  border-radius: 16px;
-}
-.pad .up { grid-column: 2; grid-row: 1; }
-.pad .left { grid-column: 1; grid-row: 2; }
-.pad .down { grid-column: 2; grid-row: 2; }
-.pad .right { grid-column: 3; grid-row: 2; }
-@media (hover: hover) and (pointer: fine) { .pad { display: none; } }
+.hint { color: var(--muted); font-size: 0.8125rem; margin: 0; line-height: 1.45; max-width: 36ch; }
 @media (prefers-reduced-motion: reduce) {
   .chip strong.pop { animation: none; }
   button { transition: none; }
@@ -184,18 +174,11 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
   </div>
 
   <div class="bar">
-    <p class="hint">Panah atau WASD untuk belok, spasi untuk jeda. Di HP, geser di papan.</p>
+    <p class="hint">Ketuk di atas, bawah, kiri, atau kanan kepala ular untuk belok. Di laptop: panah atau WASD, spasi untuk jeda.</p>
     <div class="btns">
       <button class="ghost" id="sound" type="button" aria-pressed="true">Suara nyala</button>
       <button class="ghost" id="pause" type="button">Jeda</button>
     </div>
-  </div>
-
-  <div class="pad" aria-label="Kontrol arah">
-    <button class="up" type="button" data-dir="up" aria-label="Atas">&#9650;</button>
-    <button class="left" type="button" data-dir="left" aria-label="Kiri">&#9664;</button>
-    <button class="down" type="button" data-dir="down" aria-label="Bawah">&#9660;</button>
-    <button class="right" type="button" data-dir="right" aria-label="Kanan">&#9654;</button>
   </div>
 </main>
 
@@ -514,21 +497,39 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
     }
   });
 
-  document.querySelectorAll(".pad button").forEach(function (btn) {
-    btn.addEventListener("click", function () { turn.apply(null, DIRS[btn.dataset.dir]); });
-  });
   el.ovBtn.addEventListener("click", start);
   el.pause.addEventListener("click", toggle);
 
-  var tx = 0, ty = 0;
-  canvas.addEventListener("touchstart", function (e) {
-    var t = e.changedTouches[0]; tx = t.clientX; ty = t.clientY;
-  }, { passive: true });
-  canvas.addEventListener("touchend", function (e) {
-    var t = e.changedTouches[0], dx = t.clientX - tx, dy = t.clientY - ty;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+  /* Ketuk papan: ular belok ke arah area yang diketuk, dihitung dari posisi kepalanya.
+     Ular tidak bisa berbalik arah, jadi belokannya selalu tegak lurus dengan arah jalannya. */
+  function tapTurn(clientX, clientY) {
+    var rect = canvas.getBoundingClientRect();
+    var k = SIZE / rect.width;
+    var dx = (clientX - rect.left) * k - (snake[0].x * CELL + CELL / 2);
+    var dy = (clientY - rect.top) * k - (snake[0].y * CELL + CELL / 2);
+    var last = queue.length ? queue[queue.length - 1] : dir;
+    var dead = CELL * 0.5;
+    if (last.x !== 0) {
+      if (Math.abs(dy) >= dead) turn(0, dy > 0 ? 1 : -1);
+      else if (dx * last.x < 0) turn(0, snake[0].y < N / 2 ? 1 : -1);
+    } else {
+      if (Math.abs(dx) >= dead) turn(dx > 0 ? 1 : -1, 0);
+      else if (dy * last.y < 0) turn(snake[0].x < N / 2 ? 1 : -1, 0);
+    }
+  }
+
+  var downX = 0, downY = 0, downId = null;
+  canvas.addEventListener("pointerdown", function (e) {
+    downX = e.clientX; downY = e.clientY; downId = e.pointerId;
+  });
+  canvas.addEventListener("pointerup", function (e) {
+    if (e.pointerId !== downId) return;
+    downId = null;
+    var dx = e.clientX - downX, dy = e.clientY - downY;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) { tapTurn(e.clientX, e.clientY); return; }
     if (Math.abs(dx) > Math.abs(dy)) turn(dx > 0 ? 1 : -1, 0); else turn(0, dy > 0 ? 1 : -1);
-  }, { passive: true });
+  });
+  canvas.addEventListener("pointercancel", function () { downId = null; });
 
   document.addEventListener("visibilitychange", function () { if (document.hidden) pause(); });
   window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", loadColors);
