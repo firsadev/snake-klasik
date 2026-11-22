@@ -1,6 +1,6 @@
 /* Service worker Snake Klasik: game bisa dibuka dan dimainkan tanpa internet.
    Naikkan nomor CACHE setiap kali file game diubah supaya pemain mendapat versi baru. */
-var CACHE = "snake-klasik-v3";
+var CACHE = "snake-klasik-v4";
 var FILES = [
   "./",
   "index.html",
