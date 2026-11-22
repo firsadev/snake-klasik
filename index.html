@@ -36,6 +36,9 @@
   --accent-fg: #04201c;
   --chip: rgba(255, 255, 255, 0.07);
   --danger: rgba(251, 113, 133, 0.35);
+  --brick: #c4673f;
+  --brick-dark: #6e301d;
+  --brick-light: rgba(255, 255, 255, 0.2);
   --font-display: "Outfit", system-ui, sans-serif;
   --font-body: "Inter", system-ui, sans-serif;
 }
@@ -58,6 +61,9 @@
     --accent-fg: #f2fffd;
     --chip: rgba(17, 35, 38, 0.06);
     --danger: rgba(225, 29, 72, 0.22);
+    --brick: #c2552b;
+    --brick-dark: #8a3a1e;
+    --brick-light: rgba(255, 255, 255, 0.28);
   }
 }
 * { box-sizing: border-box; }
@@ -157,7 +163,7 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
       <canvas id="board" width="400" height="400" aria-label="Papan permainan Snake"></canvas>
       <div class="overlay" id="overlay">
         <h2 id="ov-title">Siap main?</h2>
-        <p id="ov-text">Makan apel, hindari dinding dan tubuhmu sendiri.</p>
+        <p id="ov-text">Dinding bisa ditembus. Makan apel, hindari batu bata dan tubuhmu sendiri.</p>
         <button id="ov-btn" type="button">Mulai</button>
       </div>
     </div>
@@ -174,7 +180,7 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
   </div>
 
   <div class="bar">
-    <p class="hint">Ketuk di atas, bawah, kiri, atau kanan kepala ular untuk belok. Di laptop: panah atau WASD, spasi untuk jeda.</p>
+    <p class="hint">Ketuk di atas, bawah, kiri, atau kanan kepala ular untuk belok. Tiap level ada batu bata baru. Di laptop: panah atau WASD.</p>
     <div class="btns">
       <button class="ghost" id="sound" type="button" aria-pressed="true">Suara nyala</button>
       <button class="ghost" id="pause" type="button">Jeda</button>
@@ -202,6 +208,7 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
   var lastTick = 0, elapsedHold = 0, deathAt = 0, particles = [];
   var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var colors = {};
+  var bricks = [], brickSet = {}, banner = null;
 
   var SPEEDS = {
     pelan: { start: 190, min: 110 },
@@ -305,7 +312,7 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
 
   function loadColors() {
     var cs = getComputedStyle(document.documentElement);
-    ["--board", "--dot", "--snake-a", "--snake-b", "--eye", "--food", "--danger"].forEach(function (k) {
+    ["--board", "--dot", "--snake-a", "--snake-b", "--eye", "--food", "--danger", "--accent", "--fg", "--brick", "--brick-dark", "--brick-light"].forEach(function (k) {
       colors[k] = cs.getPropertyValue(k).trim();
     });
   }
@@ -317,16 +324,95 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
   function placeFood() {
     var free = [];
     for (var x = 0; x < N; x++) for (var y = 0; y < N; y++) {
-      if (!snake.some(function (s) { return s.x === x && s.y === y; })) free.push({ x: x, y: y });
+      if (!isSnakeCell(x, y) && !hasBrick(x, y)) free.push({ x: x, y: y });
     }
     food = free.length ? free[Math.floor(Math.random() * free.length)] : null;
   }
+
+  /* BRICKS-START
+     Dinding bisa ditembus (dunia melingkar). Tiap level punya rintangan batu bata acak:
+     makin tinggi level, makin banyak keping, makin panjang, dan mulai level 8 ada yang berbentuk L.
+     Batu bata tidak muncul di tubuh ular, di dekat kepala, atau di jalur lurus 6 petak di depannya,
+     dan susunannya selalu menyisakan ruang yang tersambung. */
+  function wrapN(v) { return ((v % N) + N) % N; }
+  function isSnakeCell(x, y) { return snake.some(function (s) { return s.x === x && s.y === y; }); }
+  function hasBrick(x, y) { return !!brickSet[y * N + x]; }
+
+  function brickPlan(level) {
+    return {
+      pieces: Math.min(2 + Math.floor(level * 1.5), 22),
+      maxLen: Math.min(1 + Math.floor((level - 1) / 3), 4),
+      maxCells: 70
+    };
+  }
+
+  function buildBricks(level, pieces) {
+    var plan = brickPlan(level), set = {}, list = [], placed = 0, attempt = 0;
+    var head = snake[0];
+    function safe(x, y) {
+      if (isSnakeCell(x, y)) return false;
+      if (food && food.x === x && food.y === y) return false;
+      var ddx = Math.abs(x - head.x), ddy = Math.abs(y - head.y);
+      ddx = Math.min(ddx, N - ddx); ddy = Math.min(ddy, N - ddy);
+      if (ddx + ddy <= 3) return false;
+      for (var s = 1; s <= 6; s++) {
+        if (wrapN(head.x + dir.x * s) === x && wrapN(head.y + dir.y * s) === y) return false;
+      }
+      return true;
+    }
+    while (placed < pieces && attempt < pieces * 25 && list.length < plan.maxCells) {
+      attempt++;
+      var len = 1 + Math.floor(Math.random() * plan.maxLen);
+      var horiz = Math.random() < 0.5;
+      var sx = Math.floor(Math.random() * N), sy = Math.floor(Math.random() * N);
+      var shape = [];
+      for (var i = 0; i < len; i++) shape.push({ x: wrapN(sx + (horiz ? i : 0)), y: wrapN(sy + (horiz ? 0 : i)) });
+      if (level >= 8 && len >= 2 && Math.random() < 0.35) {
+        shape.push({ x: wrapN(sx + (horiz ? 0 : 1)), y: wrapN(sy + (horiz ? 1 : 0)) });
+      }
+      var ok = shape.every(function (c) { return safe(c.x, c.y) && !set[c.y * N + c.x]; });
+      if (!ok) continue;
+      shape.forEach(function (c) { set[c.y * N + c.x] = true; list.push({ x: c.x, y: c.y }); });
+      placed++;
+    }
+    return { set: set, list: list };
+  }
+
+  function bricksConnected(set, count) {
+    var head = snake[0], start = head.y * N + head.x, seen = {}, stack = [start], reached = 0;
+    seen[start] = true;
+    var steps = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    while (stack.length) {
+      var c = stack.pop(); reached++;
+      var cx = c % N, cy = (c - cx) / N;
+      for (var d = 0; d < 4; d++) {
+        var k = wrapN(cy + steps[d][1]) * N + wrapN(cx + steps[d][0]);
+        if (!seen[k] && !set[k]) { seen[k] = true; stack.push(k); }
+      }
+    }
+    return reached === N * N - count;
+  }
+
+  function generateBricks(level) {
+    var plan = brickPlan(level), result = null;
+    for (var tries = 0; tries < 40; tries++) {
+      var pieces = tries < 20 ? plan.pieces : Math.max(1, Math.floor(plan.pieces / 2));
+      var r = buildBricks(level, pieces);
+      if (bricksConnected(r.set, r.list.length)) { result = r; break; }
+    }
+    var now = performance.now();
+    bricks = result ? result.list : []; brickSet = result ? result.set : {};
+    bricks.forEach(function (b) { b.born = now; });
+  }
+  /* BRICKS-END */
 
   function reset() {
     snake = [{ x: 8, y: 10 }, { x: 7, y: 10 }, { x: 6, y: 10 }];
     prev = snake.map(function (s) { return { x: s.x, y: s.y }; });
     dir = { x: 1, y: 0 }; queue = []; score = 0; delay = calcDelay(); particles = []; deathAt = 0; elapsedHold = 0;
+    banner = null; food = null;
     el.score.textContent = 0; el.level.textContent = 1;
+    generateBricks(1);
     placeFood();
   }
 
@@ -381,10 +467,10 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
 
   function tick() {
     if (queue.length) dir = queue.shift();
-    var head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+    var head = { x: wrapN(snake[0].x + dir.x), y: wrapN(snake[0].y + dir.y) };
     var eating = food && head.x === food.x && head.y === food.y;
     var body = eating ? snake : snake.slice(0, -1);
-    var hit = head.x < 0 || head.y < 0 || head.x >= N || head.y >= N ||
+    var hit = hasBrick(head.x, head.y) ||
       body.some(function (s) { return s.x === head.x && s.y === head.y; });
     if (hit) { prev = snake.map(function (s) { return { x: s.x, y: s.y }; }); gameOver(); return; }
     prev = snake.map(function (s) { return { x: s.x, y: s.y }; });
@@ -395,7 +481,11 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
       score++; el.score.textContent = score; popEl(el.score);
       var lvl = Math.floor(score / 5) + 1;
       var leveled = String(lvl) !== el.level.textContent;
-      if (leveled) { el.level.textContent = lvl; popEl(el.level); }
+      if (leveled) {
+        el.level.textContent = lvl; popEl(el.level);
+        generateBricks(lvl);
+        banner = { text: "Level " + lvl, at: performance.now() };
+      }
       sfx(leveled ? "levelup" : "eat");
       delay = calcDelay();
       placeFood();
@@ -422,6 +512,52 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
     return "rgb(" + a.map(function (v, i) { return Math.round(v + (b[i] - v) * t); }).join(",") + ")";
   }
 
+  function wrapDelta(d) { return d - N * Math.round(d / N); }
+
+  function drawSnake(pts, ox, oy) {
+    var n = pts.length;
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    for (var i = n - 1; i > 0; i--) {
+      var k = n > 1 ? i / (n - 1) : 0;
+      ctx.strokeStyle = mix(colors["--snake-a"], colors["--snake-b"], k);
+      ctx.lineWidth = CELL * (0.78 - 0.18 * k);
+      ctx.beginPath(); ctx.moveTo(pts[i].x + ox, pts[i].y + oy); ctx.lineTo(pts[i - 1].x + ox, pts[i - 1].y + oy); ctx.stroke();
+    }
+    var hx = pts[0].x + ox, hy = pts[0].y + oy;
+    ctx.fillStyle = colors["--snake-a"];
+    ctx.beginPath(); ctx.arc(hx, hy, CELL * 0.43, 0, Math.PI * 2); ctx.fill();
+    var ex = dir.x, ey = dir.y, px = -ey, py = ex;
+    ctx.fillStyle = colors["--eye"];
+    [-1, 1].forEach(function (side) {
+      ctx.beginPath();
+      ctx.arc(hx + ex * 3.5 + px * side * 3.6, hy + ey * 3.5 + py * side * 3.6, 1.9, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  function drawBrick(b, now) {
+    var a = reduceMotion ? 1 : Math.min(1, (now - b.born) / 500);
+    var sc = 0.6 + 0.4 * a;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.translate(b.x * CELL + CELL / 2, b.y * CELL + CELL / 2);
+    ctx.scale(sc, sc);
+    ctx.translate(-CELL / 2, -CELL / 2);
+    ctx.fillStyle = colors["--brick-dark"];
+    ctx.fillRect(0, 0, CELL, CELL);
+    var rows = [[[1, 9.5], [10.5, 19]], [[1, 4.5], [5.5, 14.5], [15.5, 19]]];
+    rows.forEach(function (row, r) {
+      var y0 = r === 0 ? 1 : 10.5, h = 8.5;
+      row.forEach(function (seg) {
+        ctx.fillStyle = colors["--brick"];
+        ctx.fillRect(seg[0], y0, seg[1] - seg[0], h);
+        ctx.fillStyle = colors["--brick-light"];
+        ctx.fillRect(seg[0], y0, seg[1] - seg[0], 1.2);
+      });
+    });
+    ctx.restore();
+  }
+
   function render(now) {
     var t = 1;
     if (state === "running") t = Math.min(1, (now - lastTick) / delay);
@@ -435,6 +571,8 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
       ctx.beginPath(); ctx.arc(gx * CELL + CELL / 2, gy * CELL + CELL / 2, 1.1, 0, Math.PI * 2); ctx.fill();
     }
 
+    bricks.forEach(function (b) { drawBrick(b, now); });
+
     if (food) {
       var pulse = 1 + (reduceMotion ? 0 : Math.sin(now / 280) * 0.08);
       var fx = food.x * CELL + CELL / 2, fy = food.y * CELL + CELL / 2;
@@ -447,28 +585,28 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
       ctx.beginPath(); ctx.arc(fx - 2, fy - 2.5, 1.8, 0, Math.PI * 2); ctx.fill();
     }
 
-    var pts = snake.map(function (s, i) {
+    /* Posisi tiap ruas, disambung secara melingkar supaya ular yang menembus dinding
+       tidak digambar sebagai garis panjang melintasi papan. */
+    var raw = snake.map(function (s, i) {
       var p = prev[i] || s;
-      return { x: (p.x + (s.x - p.x) * t) * CELL + CELL / 2, y: (p.y + (s.y - p.y) * t) * CELL + CELL / 2 };
+      return { x: p.x + wrapDelta(s.x - p.x) * t, y: p.y + wrapDelta(s.y - p.y) * t };
     });
-    var n = pts.length;
-    ctx.lineCap = "round"; ctx.lineJoin = "round";
-    for (var i = n - 1; i > 0; i--) {
-      var k = n > 1 ? i / (n - 1) : 0;
-      ctx.strokeStyle = mix(colors["--snake-a"], colors["--snake-b"], k);
-      ctx.lineWidth = CELL * (0.78 - 0.18 * k);
-      ctx.beginPath(); ctx.moveTo(pts[i].x, pts[i].y); ctx.lineTo(pts[i - 1].x, pts[i - 1].y); ctx.stroke();
+    var pts = [{ x: raw[0].x * CELL + CELL / 2, y: raw[0].y * CELL + CELL / 2 }];
+    for (var q = 1; q < raw.length; q++) {
+      pts.push({
+        x: pts[q - 1].x + wrapDelta(raw[q].x - raw[q - 1].x) * CELL,
+        y: pts[q - 1].y + wrapDelta(raw[q].y - raw[q - 1].y) * CELL
+      });
     }
-    var h = pts[0];
-    ctx.fillStyle = colors["--snake-a"];
-    ctx.beginPath(); ctx.arc(h.x, h.y, CELL * 0.43, 0, Math.PI * 2); ctx.fill();
-    var ex = dir.x, ey = dir.y, px = -ey, py = ex;
-    ctx.fillStyle = colors["--eye"];
-    [-1, 1].forEach(function (side) {
-      ctx.beginPath();
-      ctx.arc(h.x + ex * 3.5 + px * side * 3.6, h.y + ey * 3.5 + py * side * 3.6, 1.9, 0, Math.PI * 2);
-      ctx.fill();
+    var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    pts.forEach(function (p) {
+      minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+      minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
     });
+    for (var oy = -1; oy <= 1; oy++) for (var ox = -1; ox <= 1; ox++) {
+      if (maxX + ox * SIZE > -CELL && minX + ox * SIZE < SIZE + CELL &&
+          maxY + oy * SIZE > -CELL && minY + oy * SIZE < SIZE + CELL) drawSnake(pts, ox * SIZE, oy * SIZE);
+    }
 
     for (var j = particles.length - 1; j >= 0; j--) {
       var pa = particles[j], age = (now - pa.born) / 450;
@@ -477,6 +615,24 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
       ctx.fillStyle = colors["--food"];
       ctx.beginPath(); ctx.arc(pa.x + pa.vx * age, pa.y + pa.vy * age, 2.6 * (1 - age) + 0.6, 0, Math.PI * 2); ctx.fill();
       ctx.globalAlpha = 1;
+    }
+
+    if (banner) {
+      var ba = (now - banner.at) / 1700;
+      if (ba >= 1) banner = null;
+      else {
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, ba < 0.12 ? ba / 0.12 : 1 - (ba - 0.12) / 0.88);
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 14;
+        ctx.fillStyle = colors["--accent"];
+        ctx.font = "700 36px Outfit, system-ui, sans-serif";
+        ctx.fillText(banner.text, SIZE / 2, SIZE / 2 - 10);
+        ctx.fillStyle = colors["--fg"];
+        ctx.font = "500 14px Inter, system-ui, sans-serif";
+        ctx.fillText("Batu bata baru muncul", SIZE / 2, SIZE / 2 + 20);
+        ctx.restore();
+      }
     }
 
     if (state === "over" && deathAt) {
@@ -509,12 +665,16 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
     var dy = (clientY - rect.top) * k - (snake[0].y * CELL + CELL / 2);
     var last = queue.length ? queue[queue.length - 1] : dir;
     var dead = CELL * 0.5;
+    function open(sx, sy) {
+      var nx = wrapN(snake[0].x + sx), ny = wrapN(snake[0].y + sy);
+      return !hasBrick(nx, ny) && !isSnakeCell(nx, ny);
+    }
     if (last.x !== 0) {
       if (Math.abs(dy) >= dead) turn(0, dy > 0 ? 1 : -1);
-      else if (dx * last.x < 0) turn(0, snake[0].y < N / 2 ? 1 : -1);
+      else if (dx * last.x < 0) turn(0, open(0, 1) ? 1 : -1);
     } else {
       if (Math.abs(dx) >= dead) turn(dx > 0 ? 1 : -1, 0);
-      else if (dy * last.y < 0) turn(snake[0].x < N / 2 ? 1 : -1, 0);
+      else if (dy * last.y < 0) turn(open(1, 0) ? 1 : -1, 0);
     }
   }
 
