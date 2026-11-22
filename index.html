@@ -113,6 +113,11 @@ button:hover { filter: brightness(1.08); }
 button:active { transform: scale(0.96); }
 button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
 .ghost { background: var(--chip); color: var(--fg); border: 1px solid var(--card-line); padding: 9px 18px; }
+.speed { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.speed-label { font-size: 0.625rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.seg { display: flex; gap: 4px; padding: 4px; background: var(--chip); border: 1px solid var(--card-line); border-radius: 14px; flex: 1 1 280px; max-width: 340px; }
+.seg button { flex: 1; padding: 8px 4px; font-size: 0.8125rem; border-radius: 10px; background: transparent; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
 
 .bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .hint { color: var(--muted); font-size: 0.8125rem; margin: 0; line-height: 1.45; max-width: 30ch; }
@@ -159,6 +164,16 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
     </div>
   </div>
 
+  <div class="speed">
+    <span class="speed-label" id="speed-label">Kecepatan</span>
+    <div class="seg" role="group" aria-labelledby="speed-label">
+      <button type="button" data-speed="pelan" aria-pressed="false">Pelan</button>
+      <button type="button" data-speed="normal" aria-pressed="true">Normal</button>
+      <button type="button" data-speed="cepat" aria-pressed="false">Cepat</button>
+      <button type="button" data-speed="ngebut" aria-pressed="false">Ngebut</button>
+    </div>
+  </div>
+
   <div class="bar">
     <p class="hint">Panah atau WASD untuk belok, spasi untuk jeda. Di HP, geser di papan.</p>
     <button class="ghost" id="pause" type="button">Jeda</button>
@@ -193,8 +208,39 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
   var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var colors = {};
 
-  try { best = parseInt(localStorage.getItem("snake-klasik-best"), 10) || 0; } catch (e) {}
+  var SPEEDS = {
+    pelan: { start: 190, min: 110 },
+    normal: { start: 140, min: 70 },
+    cepat: { start: 100, min: 55 },
+    ngebut: { start: 75, min: 42 }
+  };
+  var speedKey = "normal";
+  try {
+    best = parseInt(localStorage.getItem("snake-klasik-best"), 10) || 0;
+    var savedSpeed = localStorage.getItem("snake-klasik-speed");
+    if (savedSpeed && SPEEDS[savedSpeed]) speedKey = savedSpeed;
+  } catch (e) {}
   el.best.textContent = best;
+
+  function calcDelay() {
+    var s = SPEEDS[speedKey];
+    return Math.max(s.min, s.start - 4 * score);
+  }
+
+  var speedBtns = document.querySelectorAll(".seg button");
+  function syncSpeedButtons() {
+    speedBtns.forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.speed === speedKey)); });
+  }
+  speedBtns.forEach(function (b) {
+    b.addEventListener("click", function () {
+      speedKey = b.dataset.speed;
+      try { localStorage.setItem("snake-klasik-speed", speedKey); } catch (e) {}
+      syncSpeedButtons();
+      delay = calcDelay();
+      b.blur();
+    });
+  });
+  syncSpeedButtons();
 
   function loadColors() {
     var cs = getComputedStyle(document.documentElement);
@@ -218,7 +264,7 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
   function reset() {
     snake = [{ x: 8, y: 10 }, { x: 7, y: 10 }, { x: 6, y: 10 }];
     prev = snake.map(function (s) { return { x: s.x, y: s.y }; });
-    dir = { x: 1, y: 0 }; queue = []; score = 0; delay = 140; particles = []; deathAt = 0; elapsedHold = 0;
+    dir = { x: 1, y: 0 }; queue = []; score = 0; delay = calcDelay(); particles = []; deathAt = 0; elapsedHold = 0;
     el.score.textContent = 0; el.level.textContent = 1;
     placeFood();
   }
@@ -286,7 +332,7 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
       score++; el.score.textContent = score; popEl(el.score);
       var lvl = Math.floor(score / 5) + 1;
       if (String(lvl) !== el.level.textContent) { el.level.textContent = lvl; popEl(el.level); }
-      delay = Math.max(70, delay - 4);
+      delay = calcDelay();
       placeFood();
     } else {
       snake.pop();
