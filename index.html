@@ -119,7 +119,8 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
 .seg button { flex: 1; padding: 8px 4px; font-size: 0.8125rem; border-radius: 10px; background: transparent; color: var(--muted); }
 .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
 
-.bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.btns { display: flex; gap: 8px; }
 .hint { color: var(--muted); font-size: 0.8125rem; margin: 0; line-height: 1.45; max-width: 30ch; }
 .pad { display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(2, 54px); gap: 8px; justify-content: center; }
 .pad button {
@@ -176,7 +177,10 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
 
   <div class="bar">
     <p class="hint">Panah atau WASD untuk belok, spasi untuk jeda. Di HP, geser di papan.</p>
-    <button class="ghost" id="pause" type="button">Jeda</button>
+    <div class="btns">
+      <button class="ghost" id="sound" type="button" aria-pressed="true">Suara nyala</button>
+      <button class="ghost" id="pause" type="button">Jeda</button>
+    </div>
   </div>
 
   <div class="pad" aria-label="Kontrol arah">
@@ -242,6 +246,72 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
   });
   syncSpeedButtons();
 
+  /* Efek suara: nada sinus lembut dengan envelope halus, disaring low-pass. */
+  var audio = { ctx: null, master: null };
+  var muted = false;
+  try { muted = localStorage.getItem("snake-klasik-muted") === "1"; } catch (e) {}
+  var soundBtn = document.getElementById("sound");
+
+  function ensureAudio() {
+    if (!audio.ctx) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return false;
+      audio.ctx = new AC();
+      audio.master = audio.ctx.createGain();
+      audio.master.gain.value = 0.55;
+      var lp = audio.ctx.createBiquadFilter();
+      lp.type = "lowpass"; lp.frequency.value = 2600;
+      audio.master.connect(lp); lp.connect(audio.ctx.destination);
+    }
+    if (audio.ctx.state === "suspended") audio.ctx.resume();
+    return true;
+  }
+
+  function tone(freq, at, dur, vol, type, freqEnd) {
+    var c = audio.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = type || "sine";
+    o.frequency.setValueAtTime(freq, at);
+    if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, at + dur);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(vol, at + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+    o.connect(g); g.connect(audio.master);
+    o.start(at); o.stop(at + dur + 0.05);
+  }
+
+  function sfx(name) {
+    if (muted || !ensureAudio()) return;
+    var t = audio.ctx.currentTime + 0.01;
+    if (name === "eat") {
+      tone(523, t, 0.14, 0.22, "sine", 784);
+      tone(1047, t + 0.06, 0.16, 0.08, "sine");
+    } else if (name === "levelup") {
+      [523, 659, 784, 1047].forEach(function (f, i) { tone(f, t + i * 0.075, 0.22, 0.2, "sine"); });
+    } else if (name === "start" || name === "resume") {
+      tone(392, t, 0.2, 0.16, "sine", 587);
+    } else if (name === "pause") {
+      tone(587, t, 0.16, 0.14, "sine", 392);
+    } else if (name === "over") {
+      tone(330, t, 0.55, 0.2, "triangle", 110);
+      tone(247, t + 0.1, 0.5, 0.1, "sine", 82);
+    } else if (name === "record") {
+      [523, 659, 784, 1047, 1319].forEach(function (f, i) { tone(f, t + i * 0.09, 0.3, 0.18, "sine"); });
+    }
+  }
+
+  function syncSound() {
+    soundBtn.textContent = muted ? "Suara mati" : "Suara nyala";
+    soundBtn.setAttribute("aria-pressed", String(!muted));
+  }
+  soundBtn.addEventListener("click", function () {
+    muted = !muted;
+    try { localStorage.setItem("snake-klasik-muted", muted ? "1" : "0"); } catch (e) {}
+    syncSound();
+    if (!muted) sfx("resume");
+    soundBtn.blur();
+  });
+  syncSound();
+
   function loadColors() {
     var cs = getComputedStyle(document.documentElement);
     ["--board", "--dot", "--snake-a", "--snake-b", "--eye", "--food", "--danger"].forEach(function (k) {
@@ -278,6 +348,7 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
     var now = performance.now();
     if (state === "over") reset();
     var resuming = state === "paused";
+    sfx(resuming ? "resume" : "start");
     state = "running"; el.overlay.hidden = true; el.pause.textContent = "Jeda";
     if (!resuming) elapsedHold = 0;
     lastTick = now - elapsedHold;
@@ -288,7 +359,7 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
   function pause() {
     if (state !== "running") return;
     elapsedHold = performance.now() - lastTick;
-    state = "paused"; clearTimeout(timer);
+    state = "paused"; clearTimeout(timer); sfx("pause");
     showOverlay("Dijeda", "Tekan spasi atau tombol untuk lanjut.", "Lanjut");
     el.pause.textContent = "Lanjut";
   }
@@ -299,6 +370,7 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
 
   function gameOver() {
     state = "over"; clearTimeout(timer); deathAt = performance.now();
+    sfx(score > best ? "record" : "over");
     if (score > best) {
       best = score; el.best.textContent = best; popEl(el.best);
       try { localStorage.setItem("snake-klasik-best", String(best)); } catch (e) {}
@@ -331,7 +403,9 @@ button:focus-visible { outline: 3px solid var(--fg); outline-offset: 2px; }
       prev.push({ x: prev[prev.length - 1].x, y: prev[prev.length - 1].y });
       score++; el.score.textContent = score; popEl(el.score);
       var lvl = Math.floor(score / 5) + 1;
-      if (String(lvl) !== el.level.textContent) { el.level.textContent = lvl; popEl(el.level); }
+      var leveled = String(lvl) !== el.level.textContent;
+      if (leveled) { el.level.textContent = lvl; popEl(el.level); }
+      sfx(leveled ? "levelup" : "eat");
       delay = calcDelay();
       placeFood();
     } else {
